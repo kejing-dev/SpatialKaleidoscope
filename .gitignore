@@ -1,0 +1,31 @@
+# Unity
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Ll]ogs/
+[Uu]ser[Ss]ettings/
+[Mm]emoryCaptures/
+[Rr]ecordings/
+.vs/
+.idea/
+*.csproj
+*.sln
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+*.apk.meta
+crashlytics-build.properties
+Assets/StreamingAssets/aa.meta
+Assets/StreamingAssets/aa/*
+# keep the shipped APK under Builds/ (tracked on purpose for this repo)
+!Builds/SpatialKaleidoscope.apk
+# OS
+.DS_Store
+
+# verification captures (curated copies live in docs/screenshots)
+Captures/
