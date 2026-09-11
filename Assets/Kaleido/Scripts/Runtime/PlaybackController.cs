@@ -16,6 +16,7 @@ namespace Kaleido
         public Transform DomeRoot;
         public Transform ObjectAnchor;
         public GameObject FirstLaunchHint;     // optional; shown 3 s on the very first launch
+        public NavButtons Buttons;             // resident previous / next buttons below the horizon
         public bool IsEditorCapture;
 
         public SceneDefinition[] Playlist { get; private set; }
@@ -130,9 +131,30 @@ namespace Kaleido
                 Governor?.SetDimming(1f, 1.0f);
                 frame = default;
             }
+            // hover feedback: any pointer ray (controller aim, hand aim, head) over a button
+            if (Buttons != null)
+            {
+                int hover = -1;
+                if (Input != null)
+                {
+                    var rays = Input.PointerRays;
+                    for (int i = 0; i < rays.Count && hover < 0; i++) hover = Buttons.HitTest(rays[i]);
+                }
+                Buttons.SetHover(hover);
+                Buttons.Step(realDt);
+            }
+
             if (frame.TogglePause) SetPaused(!Paused);
-            else if (frame.Next && _startFadeT >= 1f) RequestStep(+1);      // no paging during the 1 s start fade
-            else if (frame.Previous && _startFadeT >= 1f) RequestStep(-1);
+            else if (frame.PreviousKey && _startFadeT >= 1f) RequestStep(-1);
+            else if (frame.Click && _startFadeT >= 1f)                         // no paging during the 1 s start fade
+            {
+                // a click means "next" unless it targets a button (left = previous, right = next)
+                int hit = (Buttons != null && frame.HasClickRay) ? Buttons.HitTest(frame.ClickRay) : -1;
+                if (hit < 0 && Buttons != null && MainCamera != null)
+                    hit = Buttons.HitTest(new Ray(MainCamera.transform.position, MainCamera.transform.forward));
+                Buttons?.Flash(hit);
+                RequestStep(hit == 0 ? -1 : +1);
+            }
             if (frame.AnyValid) _autoTimer = 0f;
 
             // ----- clocks
@@ -280,6 +302,7 @@ namespace Kaleido
             float eyeHeight = cam.position.y > 0.3f ? cam.position.y : 1.6f;
             ObjectAnchor.position = new Vector3(cam.position.x, eyeHeight, cam.position.z) + fwd * KaleidoConfig.ObjectDistance;
             ObjectAnchor.rotation = Quaternion.LookRotation(-fwd, Vector3.up);
+            Buttons?.Place(new Vector3(cam.position.x, eyeHeight, cam.position.z), fwd);
             if (FirstLaunchHint != null)
             {
                 FirstLaunchHint.transform.SetPositionAndRotation(

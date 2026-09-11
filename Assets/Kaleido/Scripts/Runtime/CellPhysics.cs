@@ -10,21 +10,25 @@ namespace Kaleido
     /// </summary>
     public static class CellPhysics
     {
-        public const float FixedStep = 1f / 120f;
+        public const float FixedStep = 1f / 60f;         // 60 Hz is plenty for slow tumbling and halves CPU cost
         public const float TubeRotationDegPerSec = 8f;   // full turn every 45 s
-        public const float GravityStrength = 0.55f;      // cell units / s^2 (cell radius = 1)
+        public const float GravityStrength = 0.2f;       // cell units / s^2 (cell radius = 1): slow drifting, not falling
 
         static float _accumulator;
         static float _tubeAngleDeg;
         static bool _initialised;
 
         public static float GravityAngleDeg { get; private set; }
+        /// <summary>Angle of the current gravity vector in the cell plane (radians, atan2(y, x)).</summary>
+        public static float GravityVectorAngleRad => Mathf.Atan2(Physics2D.gravity.y, Physics2D.gravity.x);
 
         public static void EnsureInitialised()
         {
             if (_initialised) return;
             Physics2D.simulationMode = SimulationMode2D.Script;
             Physics2D.gravity = new Vector2(0f, -GravityStrength);
+            Physics2D.velocityIterations = 6;
+            Physics2D.positionIterations = 2;
             _initialised = true;
         }
 
@@ -39,11 +43,14 @@ namespace Kaleido
             Physics2D.gravity = new Vector2(Mathf.Sin(a), -Mathf.Cos(a)) * GravityStrength;
 
             _accumulator += evoDt;
-            while (_accumulator >= FixedStep)
+            int steps = 0;
+            while (_accumulator >= FixedStep && steps < 4)
             {
                 Physics2D.Simulate(FixedStep);
                 _accumulator -= FixedStep;
+                steps++;
             }
+            if (steps == 4) _accumulator = Mathf.Min(_accumulator, FixedStep);   // never spiral after a hitch
             if (_accumulator > 1e-5f)
             {
                 // finish with the remainder so the rendered cell state lands exactly on evolution time (no 0-8 ms jitter)

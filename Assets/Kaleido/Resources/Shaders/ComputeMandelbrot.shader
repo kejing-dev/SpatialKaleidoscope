@@ -14,6 +14,7 @@ Shader "Kaleido/ComputeMandelbrot"
         _MaxIter ("Max iterations", Float) = 1500
         _EvoTime ("Evolution time", Float) = 0
         _ZoomLog ("log10 zoom", Float) = 0
+        _TexelSize ("Texel size (1/resolution)", Float) = 0.0009765625
     }
     SubShader
     {
@@ -37,6 +38,7 @@ Shader "Kaleido/ComputeMandelbrot"
                 float _MaxIter;
                 float _EvoTime;
                 float _ZoomLog;
+                float _TexelSize;
             CBUFFER_END
 
             struct A { float4 positionOS : POSITION; float2 uv : TEXCOORD0; };
@@ -57,58 +59,56 @@ Shader "Kaleido/ComputeMandelbrot"
                 return SAMPLE_TEXTURE2D_LOD(_RefOrbit, sampler_RefOrbit, float2(u, 0.5), 0).xy;
             }
 
-            float4 Frag(V IN) : SV_Target
+            float3 Shade(float2 uv, float pix)
             {
-                float2 d0 = (IN.uv * 2.0 - 1.0) * _HalfSize;   // offset from reference c
+                float2 d0 = (uv * 2.0 - 1.0) * _HalfSize;   // offset from reference c
                 float2 d = d0;
+                float2 dz = float2(0.0, 0.0);                    // derivative of the FULL orbit w.r.t. c
                 int maxIter = (int)_MaxIter;
                 int refCount = (int)_RefCount;
                 int refIdx = 0;
                 float n = -1.0;
+                float m2 = 0.0;
                 float2 zfull = RefZ(0) + d;
                 [loop]
-                for (int i = 0; i < 2000; i++)
+                for (int i = 0; i < 2048; i++)
                 {
                     if (i >= maxIter) break;
                     float2 Z = RefZ(refIdx);
-                    // d' = 2 Z d + d^2 + d0
+                    dz = 2.0 * float2(zfull.x * dz.x - zfull.y * dz.y, zfull.x * dz.y + zfull.y * dz.x) + float2(1.0, 0.0);
                     float2 twoZd = 2.0 * float2(Z.x * d.x - Z.y * d.y, Z.x * d.y + Z.y * d.x);
                     float2 dd = float2(d.x * d.x - d.y * d.y, 2.0 * d.x * d.y);
                     d = twoZd + dd + d0;
                     refIdx++;
-                    if (refIdx >= refCount) { refIdx = 0; }   // reference is non-escaping; wrap is safe because we rebase
+                    if (refIdx >= refCount) { refIdx = 0; }
                     float2 Zn = RefZ(refIdx);
                     zfull = Zn + d;
-                    float m2 = dot(zfull, zfull);
-                    if (m2 > 1024.0)
-                    {
-                        n = (float)i + 1.0 - log2(log2(m2)) + 5.0;
-                        break;
-                    }
-                    // rebase: if the full orbit is closer to 0 than the reference, restart the reference
-                    if (m2 < dot(d, d))
-                    {
-                        d = zfull;
-                        refIdx = 0;
-                    }
+                    m2 = dot(zfull, zfull);
+                    if (m2 > 1e6) { n = (float)i; break; }
+                    if (m2 < dot(d, d)) { d = zfull; refIdx = 0; }   // rebase
                 }
-                float3 col;
-                if (n < 0.0)
-                {
-                    col = float3(0.02, 0.01, 0.03);
-                }
-                else
-                {
-                    // log-scaled colouring so bands stay similar in width across the zoom
-                    float t = log2(1.0 + n) * 0.42 + _ZoomLog * 0.12 + _EvoTime * 0.002;
-                    col = KPalette(t, float3(0.55, 0.38, 0.42), float3(0.42, 0.38, 0.45), float3(1.0, 1.0, 1.0), float3(0.0, 0.1, 0.25));
-                    float band = frac(t * 1.5);
-                    col *= 0.7 + 0.4 * smoothstep(0.0, 0.2, band) * (1.0 - smoothstep(0.8, 1.0, band));
-                    // warm sunset tint (see reference image 8) for the outer bands
-                    col = lerp(col, float3(0.98, 0.55, 0.42), 0.35 * (1.0 - smoothstep(2.0, 60.0, n)));
-                    col *= 0.55 + 0.45 * smoothstep(0.0, 8.0, n);
-                }
-                return float4(col, 1.0);
+                // Solid "set" colour for everything that is inside OR finer than the pixel grid.
+                // Structures smaller than a texel are never drawn (they would only alias); they
+                // appear once the zoom makes them larger than a texel. This keeps the image calm.
+                const float3 setColor = float3(0.10, 0.05, 0.14);
+                if (n < 0.0) return setColor;
+                float mz = sqrt(m2);
+                float de = 0.5 * mz * log(mz) / max(length(dz), 1e-30);       // distance to the set
+                float solid = 1.0 - smoothstep(0.8 * pix, 2.5 * pix, de);      // anti-aliased boundary
+                float v = log2(max(de / pix, 1.0));                            // distance in texels (>= 0)
+                // smooth exterior gradient by distance only (no iteration-count terms)
+                float t = v * 0.11 + _EvoTime * 0.004;
+                float3 pal = KPalette(t, float3(0.60, 0.45, 0.50), float3(0.36, 0.32, 0.36), float3(0.5, 0.5, 0.5), float3(0.0, 0.15, 0.30));
+                float3 farCol = float3(0.72, 0.50, 0.45);                       // warm haze far from the set
+                float3 col = lerp(pal, farCol, smoothstep(6.0, 14.0, v));
+                col += float3(1.0, 0.85, 0.6) * 0.25 * (1.0 - smoothstep(0.0, 3.0, v)); // soft rim glow
+                return lerp(col, setColor, solid);
+            }
+
+            float4 Frag(V IN) : SV_Target
+            {
+                float pix = _HalfSize * 2.0 * _TexelSize;      // one texel in the complex plane
+                return float4(Shade(IN.uv, pix), 1.0);
             }
             ENDHLSL
         }

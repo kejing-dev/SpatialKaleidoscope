@@ -128,6 +128,16 @@ namespace Kaleido
                         return "ok warp " + seconds;
                     }
                 case "frame": return "frame=" + _frame;
+                case "click":
+                    {
+                        // simulate a select along the current head ray (resolves buttons like a real click)
+                        var cam = Controller.MainCamera;
+                        int hit = (Controller.Buttons != null && cam != null) ? Controller.Buttons.HitTest(new Ray(cam.transform.position, cam.transform.forward)) : -1;
+                        Controller.Buttons?.Flash(hit);
+                        Controller.RequestStep(hit == 0 ? -1 : +1);
+                        return "ok click hit=" + hit + " -> " + (Controller.CurrentIndex + 1);
+                    }
+                case "hand": return "hand: " + (Controller.Input != null ? Controller.Input.HandStatus : "n/a");
                 case "status":
                     {
                         var cam = Controller.MainCamera != null ? Controller.MainCamera.transform : null;

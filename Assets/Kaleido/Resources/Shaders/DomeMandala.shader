@@ -74,7 +74,7 @@ Shader "Kaleido/DomeMandala"
                 // soft glow halo around the bright lines
                 float glow = (Line(sA, lw * 3.0) + Line(sB, lw * 3.5)) * 0.15;
                 col += glow * float3(0.5, 0.3, 0.6);
-                col *= 1.0 - 0.7 * smoothstep(1.1, 1.65, phi);
+                col *= 1.0 - 0.6 * smoothstep(2.0, 2.55, phi);
                 col *= HorizonMask(d);
                 return KaleidoOutput(col, _Fade);
             }

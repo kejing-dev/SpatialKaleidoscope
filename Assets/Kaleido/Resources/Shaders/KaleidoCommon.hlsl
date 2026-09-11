@@ -56,11 +56,20 @@ float2 DomePlane(float3 d)
     return phi * float2(sin(theta), cos(theta));
 }
 
-// Smooth darkening below the horizon so the full sphere never shows a hard edge.
+// Pattern coverage: full down to about -40 deg elevation (well below the horizon, so looking
+// straight ahead or down still shows the pattern), then a smooth fade to the dark floor cap
+// by about -62 deg. cos(130 deg) = -0.643, cos(152 deg) = -0.883.
+#define KALEIDO_COVERAGE_RAD 2.27   // 130 deg from the zenith: where the fade to the floor cap starts
 float HorizonMask(float3 d)
 {
-    // 1 above ~+12 deg, 0 below ~-20 deg.
-    return smoothstep(-0.35, 0.2, d.y);
+    return smoothstep(-0.883, -0.643, d.y);
+}
+
+// Fold the angle-from-zenith back on itself beyond R (mirror across the circle phi = R).
+// Continuous at phi = R; used by texture-mapped scenes to extend coverage below the horizon.
+float RadialFold(float phi, float R)
+{
+    return R - abs(R - phi);
 }
 
 // ---------------------------------------------------------------- folding
@@ -190,6 +199,65 @@ void KCellular(float2 p, float jitter, out float f1, out float f2, out float2 id
         else if (d < f2) { f2 = d; }
     }
     f1 = sqrt(f1); f2 = sqrt(f2);
+}
+
+// ---------------------------------------------------------------- 2D SDF shapes (cell fragments)
+// p in local units where the fragment bounding box is [-1,1]^2 (before aspect). All return signed
+// distance (negative inside) in the same units, so fwidth() gives resolution-independent AA.
+float SdCircle(float2 p, float r) { return length(p) - r; }
+float SdEllipse(float2 p, float2 ab)
+{
+    // cheap approximation: scaled distance
+    float k0 = length(p / ab);
+    float k1 = length(p / (ab * ab));
+    return k0 * (k0 - 1.0) / max(k1, 1e-5);
+}
+float SdRoundBox(float2 p, float2 b, float r)
+{
+    float2 q = abs(p) - b + r;
+    return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
+}
+float SdHexagon(float2 p, float r)
+{
+    const float3 k = float3(-0.866025404, 0.5, 0.577350269);
+    p = abs(p);
+    p -= 2.0 * min(dot(k.xy, p), 0.0) * k.xy;
+    p -= float2(clamp(p.x, -k.z * r, k.z * r), r);
+    return length(p) * sign(p.y);
+}
+float SdRhombus(float2 p, float2 b)
+{
+    p = abs(p);
+    float h = clamp((-2.0 * (p.x * b.x - p.y * b.y) + (b.x * b.x - b.y * b.y)) / dot(b, b), -1.0, 1.0);
+    float2 q = p - 0.5 * b * float2(1.0 - h, 1.0 + h);
+    float d = length(q);
+    return d * sign(p.x * b.y + p.y * b.x - b.x * b.y);
+}
+float SdTriangle(float2 p, float r)
+{
+    const float k = 1.73205081;
+    p.x = abs(p.x) - r;
+    p.y = p.y + r / k;
+    if (p.x + k * p.y > 0.0) p = float2(p.x - k * p.y, -k * p.x - p.y) / 2.0;
+    p.x -= clamp(p.x, -2.0 * r, 0.0);
+    return -length(p) * sign(p.y);
+}
+// Petal / leaf: ellipse tapered toward +x (one pointed end), aspect = half height.
+float SdPetal(float2 p, float aspect)
+{
+    float taper = lerp(1.0, 0.45, saturate(p.x * 0.5 + 0.5));
+    return SdEllipse(float2(p.x, p.y / taper), float2(1.0, aspect));
+}
+// shape id: 0 circle, 1 hexagon, 2 rod, 3 rhombus, 4 petal, 5 triangle, 6 rounded square
+float SdFragment(float2 p, float id, float aspect)
+{
+    if (id < 0.5) return SdCircle(p, 0.92);
+    if (id < 1.5) return SdHexagon(p, 0.9);
+    if (id < 2.5) return SdRoundBox(p, float2(0.95, aspect), aspect * 0.8);
+    if (id < 3.5) return SdRhombus(p, float2(0.95, aspect));
+    if (id < 4.5) return SdPetal(p, aspect);
+    if (id < 5.5) return SdTriangle(p, 0.85) - 0.08;
+    return SdRoundBox(p, float2(0.85, 0.85), 0.25);
 }
 
 // Cosine palette (Inigo Quilez). All channels stay in [0,1].

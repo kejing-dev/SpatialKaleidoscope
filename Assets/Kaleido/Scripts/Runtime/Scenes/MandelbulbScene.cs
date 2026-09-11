@@ -31,7 +31,7 @@ namespace Kaleido.Scenes
         // from the renderer transform scale. A 0.6 m mesh would clip the bulb (object-space radius ~0.9) to
         // a 0.6 disc because the fragments would only cover the inner part of the unit sphere.
         const float ProxyMeshRadius = 1f;
-        const float ProxyScale = KaleidoConfig.ObjectDiameter * 0.5f;   // 0.6 -> world diameter 1.2 m
+        const float ProxyScale = KaleidoConfig.MandelbulbDiameter * 0.5f;   // 0.6 -> world diameter 1.2 m
 
         const double PowerPeriodSeconds = 120.0;   // 6 -> 10 -> 6 round trip
         const float PowerCentre = 8f;
@@ -237,8 +237,8 @@ namespace Kaleido.Scenes
                 eyeW = FallbackEyeSize;
                 eyeH = FallbackEyeSize;
             }
-            width = Mathf.Max(1, eyeW / 2);
-            height = Mathf.Max(1, eyeH / 2);
+            width = Mathf.Max(1, (int)(eyeW * 0.6f));   // 0.6 per axis (device review: less aliasing than 1/2)
+            height = Mathf.Max(1, (int)(eyeH * 0.6f));
         }
 
         static RenderTexture CreateHelperRT(int width, int height, string name)

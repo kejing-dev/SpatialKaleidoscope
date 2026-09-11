@@ -69,7 +69,7 @@ Shader "Kaleido/Mandelbulb"
             float3 BulbNormal(float3 p)
             {
                 float t;
-                const float e = 0.0015;
+                const float e = 0.002;
                 float dx = BulbDE(p + float3(e, 0, 0), t) - BulbDE(p - float3(e, 0, 0), t);
                 float dy = BulbDE(p + float3(0, e, 0), t) - BulbDE(p - float3(0, e, 0), t);
                 float dz = BulbDE(p + float3(0, 0, e), t) - BulbDE(p - float3(0, 0, e), t);
@@ -99,25 +99,31 @@ Shader "Kaleido/Mandelbulb"
                 bool hit = false;
                 float3 p = 0;
                 [loop]
-                for (int i = 0; i < 64; i++)
+                int steps = 0;
+                for (int i = 0; i < 96; i++)
                 {
                     p = (ro + rd * t) * S;
                     float dist = BulbDE(p, trap) / S;
-                    if (dist < 0.0012 * (1.0 + t)) { hit = true; break; }
-                    t += dist * 0.9;
+                    if (dist < 0.0009 * (1.0 + t)) { hit = true; break; }
+                    t += dist * 0.85;
+                    steps = i;
                     if (t > tFar) break;
                 }
                 if (!hit) discard;
+                // step-count ambient occlusion (crevices need many steps)
+                float ao = 1.0 - 0.55 * saturate((float)steps / 80.0);
 
                 float3 nrm = BulbNormal(p);
                 float3 nWS = normalize(mul((float3x3)unity_ObjectToWorld, nrm));
                 float3 lightDir = normalize(float3(0.4, 0.8, -0.35));
-                float diff = saturate(dot(nWS, lightDir)) * 0.75 + 0.25;
-                float ao = saturate(1.0 - (float)0.0);   // placeholder, orbit trap gives detail below
-                float3 base = KPalette(trap * 0.35 + 0.1, float3(0.35, 0.6, 0.55), float3(0.3, 0.3, 0.3), float3(1.0, 1.0, 1.0), float3(0.15, 0.4, 0.5));
+                float diff = saturate(dot(nWS, lightDir)) * 0.7 + 0.3;
+                float3 lightDir2 = normalize(float3(-0.5, 0.2, 0.6));
+                diff += 0.25 * saturate(dot(nWS, lightDir2));
+                // low-frequency colour from the orbit trap (smooth, no speckle)
+                float3 base = KPalette(trap * 0.22 + 0.1, float3(0.45, 0.5, 0.55), float3(0.4, 0.35, 0.3), float3(1.0, 1.0, 1.0), float3(0.05, 0.25, 0.5));
                 float3 viewWS = normalize(GetCameraPositionWS() - TransformObjectToWorld(p / S));
                 float fres = pow(1.0 - saturate(dot(nWS, viewWS)), 3.0);
-                float3 col = base * diff + fres * 0.18;
+                float3 col = (base * diff + fres * 0.2) * ao;
                 float4 o = KaleidoOutput(col, 1.0);
                 o.a = 1.0;
                 return o;

@@ -76,7 +76,7 @@ Shader "Kaleido/DomeProcedural"
                 // mirror seams (thin, faint) and horizon vignette
                 float seam = 1.0 - smoothstep(0.0, 0.01, min(a, w - a) * max(r, 0.05));
                 col = lerp(col, col * 0.6, seam);
-                col *= 1.0 - 0.55 * smoothstep(1.0, 1.6, phi);
+                col *= 1.0 - 0.45 * smoothstep(1.9, 2.5, phi);
                 col *= HorizonMask(d);
                 return KaleidoOutput(col, _Fade);
             }

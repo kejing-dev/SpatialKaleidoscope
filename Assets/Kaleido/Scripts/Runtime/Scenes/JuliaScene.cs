@@ -27,9 +27,9 @@ namespace Kaleido.Scenes
         const float LoopSeconds = 90f;          // closed parameter loop
         const double Theta0 = 2.6;              // start phase on the cardioid
         const double CardioidInset = 0.995;     // slightly inside the main cardioid boundary
-        const float MaxIterations = 300f;       // matches the [loop] bound inside ComputeJulia
+        const float MaxIterations = 160f;       // matches the [loop] bound inside ComputeJulia
         const float ViewHalfSize = 1.7f;        // _View = (centre.x, centre.y, half-size, 0)
-        const float PlaneScale = 0.75f;         // DomeTexture _Scale (plane radius 1 at phi = 1/_Scale rad from the zenith)
+        const float PlaneScale = 0.526f;         // DomeTexture _Scale (plane radius 1 at phi = 1/_Scale rad from the zenith)
 
         // ---- shader property ids (names match the Properties blocks exactly)
         static readonly int CId = Shader.PropertyToID("_C");             // ComputeJulia
@@ -53,6 +53,7 @@ namespace Kaleido.Scenes
             // only wrapped in Own() and destroyed at Teardown.
             _compute = Own(KaleidoRenderUtil.NewMaterial("Kaleido/ComputeJulia"));
             _compute.SetFloat(MaxIterId, MaxIterations);
+            _compute.SetFloat(Shader.PropertyToID("_TexelSize"), 1f / TextureSize);
             _compute.SetVector(ViewId, new Vector4(0f, 0f, ViewHalfSize, 0f));
 
             // Dome material: registered through NewDomeMaterial so the base class drives _Fade

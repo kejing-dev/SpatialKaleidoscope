@@ -25,7 +25,9 @@ namespace Kaleido.Editor
             new View { Name = "forward",   Pos = new Vector3(0, 1.6f, 0), Euler = new Vector3(0, 0, 0), Fov = 90 },
             new View { Name = "left60up",  Pos = new Vector3(0, 1.6f, 0), Euler = new Vector3(-30, -60, 0), Fov = 90 },
             new View { Name = "right60up", Pos = new Vector3(0, 1.6f, 0), Euler = new Vector3(-30, 60, 0), Fov = 90 },
-            new View { Name = "down",      Pos = new Vector3(0, 1.6f, 0), Euler = new Vector3(60, 0, 0), Fov = 90 },
+            new View { Name = "down35",    Pos = new Vector3(0, 1.6f, 0), Euler = new Vector3(35, 0, 0), Fov = 90 },
+            new View { Name = "down60",    Pos = new Vector3(0, 1.6f, 0), Euler = new Vector3(60, 0, 0), Fov = 90 },
+            new View { Name = "back",      Pos = new Vector3(0, 1.6f, 0), Euler = new Vector3(-20, 180, 0), Fov = 90 },
         };
 
         static readonly View[] ObjectViews =
@@ -84,6 +86,11 @@ namespace Kaleido.Editor
             EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
             Debug.Log("[Kaleido] transition captures complete");
         }
+
+        /// <summary>Batch helpers: capture a subset (indices are 0-based playlist indices).</summary>
+        public static void RunFractals() { RunSet(new[] { 6, 11 }); }
+        public static void RunPhysical() { RunSet(new[] { 0, 1, 2, 3 }); }
+        public static void RunSet(int[] indices) { foreach (var i in indices) Run(i); }
 
         public static void Run(int onlyIndex)
         {

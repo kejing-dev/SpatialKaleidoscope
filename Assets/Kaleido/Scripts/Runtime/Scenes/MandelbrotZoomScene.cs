@@ -37,14 +37,15 @@ namespace Kaleido.Scenes
         const float MaxLog10Zoom = 10f;     // 1e10
         const float BaseHalfSize = 1.5f;    // half view size in the complex plane at 1x
         const float MinIterations = 250f;
-        const float MaxIterations = 4000f;  // < RefCount (4096)
-        const float IterationsPerDecade = 350f;
-        const float PlaneScale = 0.75f;     // DomeTexture _Scale
+        const float MaxIterations = 1500f;  // < RefCount (4096)
+        const float IterationsPerDecade = 120f;
+        const float PlaneScale = 0.526f;     // DomeTexture _Scale
 
         // Matches the Properties blocks of Kaleido/ComputeMandelbrot and Kaleido/DomeTexture exactly.
         // _EvoTime / _Fade / _MainTex come from ShaderIds.
         static readonly int RefOrbitId = Shader.PropertyToID("_RefOrbit");
         static readonly int RefCountId = Shader.PropertyToID("_RefCount");
+        static readonly int TexelSizeId = Shader.PropertyToID("_TexelSize");
         static readonly int HalfSizeId = Shader.PropertyToID("_HalfSize");
         static readonly int MaxIterId = Shader.PropertyToID("_MaxIter");
         static readonly int ZoomLogId = Shader.PropertyToID("_ZoomLog");
@@ -58,6 +59,8 @@ namespace Kaleido.Scenes
 
         double _localTime;           // scene-local evolution time = sum of dt (frozen while paused)
         float _domeFade;             // last crossfade value handed to OnFade by the base class
+        int _frameParity;
+        bool _renderedOnce;
         float _cycleFade = 1f;       // in-scene fade of the zoom cycle (1 during the first dive)
 
         // ------------------------------------------------------------------ lifecycle
@@ -74,9 +77,11 @@ namespace Kaleido.Scenes
             _computeMaterial = Own(KaleidoRenderUtil.NewMaterial("Kaleido/ComputeMandelbrot"));
             _computeMaterial.SetTexture(RefOrbitId, _refOrbit);
             _computeMaterial.SetFloat(RefCountId, _refCount);
+            _computeMaterial.SetFloat(TexelSizeId, 1f / TextureSize);
 
             _domeMaterial = NewDomeMaterial("Kaleido/DomeTexture");
             _domeMaterial.SetTexture(ShaderIds.MainTex, _fractalRT);
+            _domeMaterial.SetFloat(Shader.PropertyToID("_LodBias"), 0.3f);   // slight softening: dense filament texture must not read as noise
             _domeMaterial.SetFloat(ScaleId, PlaneScale);
             CreateDome(_domeMaterial);
 
@@ -93,7 +98,10 @@ namespace Kaleido.Scenes
             {
                 _localTime += dt;
                 ApplyCycle(_localTime);
-                RenderFractal();
+                // the zoom is continuous and slow per frame: recomputing every second frame halves the
+                // GPU cost with no visible stepping (the dome always shows the latest finished texture)
+                _frameParity ^= 1;
+                if (_frameParity == 0 || !_renderedOnce) { RenderFractal(); _renderedOnce = true; }
             }
             else if (!_fractalRT.IsCreated())
             {

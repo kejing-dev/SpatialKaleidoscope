@@ -30,7 +30,7 @@ namespace Kaleido.Scenes
         const float MeshBoundsRadius = 5.5f;                 // generous: vertices are placed by the shader
         const float DotRadius = 4.98f;                        // just inside the 5 m dome
         const float DotSize = 0.008f;                         // dot angular size (rad)
-        const float RadialScale = 1.15f;                      // _C = RadialScale / sqrt(N) -> outermost dot at ~66 deg from zenith
+        const float RadialScale = 2.25f;                      // _C = RadialScale / sqrt(N) -> outermost dot at ~66 deg from zenith
 
         // ---- evolution
         const float BaseDivergenceDeg = 137.5f;               // golden angle

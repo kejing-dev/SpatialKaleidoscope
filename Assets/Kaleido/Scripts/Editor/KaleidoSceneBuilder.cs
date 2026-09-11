@@ -90,6 +90,11 @@ namespace Kaleido.Editor
 
             var input = root.AddComponent<KaleidoInput>();
             input.EnableKeyboardMouse = false;     // keyboard/mouse only in the editor (KaleidoInput enables it there)
+            input.Head = cam;
+            input.TrackingSpace = offsetGO.transform;
+            var buttonsGO = new GameObject("NavButtons");
+            buttonsGO.transform.SetParent(root.transform, false);
+            var buttons = buttonsGO.AddComponent<NavButtons>();
             var governor = root.AddComponent<BrightnessGovernor>();
             var tilt = root.AddComponent<HeadTilt>();
             tilt.Source = cam;
@@ -100,6 +105,7 @@ namespace Kaleido.Editor
             controller.HeadTilt = tilt;
             controller.DomeRoot = domeRoot;
             controller.ObjectAnchor = anchor;
+            controller.Buttons = buttons;
             // dev-only TCP command channel; enabled only when the scene is built with KALEIDO_DEBUG=1
             var dbg = root.AddComponent<KaleidoDebugServer>();
             dbg.Controller = controller;
@@ -128,7 +134,7 @@ namespace Kaleido.Editor
             hint.transform.position = new Vector3(0f, 1.45f, 1.6f);
             hint.transform.rotation = Quaternion.identity;
             var tm = hint.AddComponent<TextMesh>();
-            tm.text = "Pinch / Trigger : next\nLeft pinch / Left trigger : previous\nHold pinch 1 s / Grip : pause";
+            tm.text = "Pinch or trigger : next\nLook down : < previous   next >\nHold pinch 1 s / grip : pause";
             tm.fontSize = 48;
             tm.characterSize = 0.012f;
             tm.anchor = TextAnchor.MiddleCenter;

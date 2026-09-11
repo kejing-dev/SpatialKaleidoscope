@@ -6,7 +6,9 @@ Shader "Kaleido/DomeTexture"
     Properties
     {
         _MainTex ("Texture", 2D) = "black" {}
-        _Scale ("Plane scale", Float) = 0.75
+        _Scale ("Plane scale", Float) = 0.526
+        _FoldRadius ("Fold radius (rad from zenith)", Float) = 1.9
+        _LodBias ("Mip bias (blur)", Float) = 0
         _Fade ("Fade", Range(0, 1)) = 1
         _Tint ("Tint", Color) = (1, 1, 1, 1)
     }
@@ -29,6 +31,8 @@ Shader "Kaleido/DomeTexture"
 
             CBUFFER_START(UnityPerMaterial)
                 float _Scale;
+                float _FoldRadius;
+                float _LodBias;
                 float _Fade;
                 float4 _Tint;
             CBUFFER_END
@@ -38,13 +42,18 @@ Shader "Kaleido/DomeTexture"
                 UNITY_SETUP_INSTANCE_ID(IN);
                 UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(IN);
                 float3 d = IN.dirOS;
-                float2 p = DomePlane(d) * _Scale;          // plane, radius ~ 1 at phi = 1/_Scale
+                float phi, theta;
+                DomePolar(d, phi, theta);
+                // texture disc covers phi <= _FoldRadius; beyond it the image is mirrored back
+                // (continuous) so the pattern reaches far below the horizon.
+                float phiF = RadialFold(phi, _FoldRadius);
+                float2 p = phiF * float2(sin(theta), cos(theta)) * _Scale;
                 float2 uv = p * 0.5 + 0.5;
-                float inside = 1.0 - smoothstep(0.93, 1.0, length(p));
                 float2 cuv = clamp(uv, 0.002, 0.998);
-                float3 col = SAMPLE_TEXTURE2D(_MainTex, sampler_MainTex, cuv).rgb * _Tint.rgb;
-                float3 border = SAMPLE_TEXTURE2D_LOD(_MainTex, sampler_MainTex, cuv, 6.0).rgb * 0.35;
-                col = lerp(border, col, inside);
+                // gradients from the unfolded coordinate keep mip selection seamless at the fold
+                float2 p0 = DomePlane(d) * _Scale;
+                float gs = 0.5 * exp2(_LodBias);
+                float3 col = SAMPLE_TEXTURE2D_GRAD(_MainTex, sampler_MainTex, cuv, ddx(p0) * gs, ddy(p0) * gs).rgb * _Tint.rgb;
                 col *= HorizonMask(d);
                 return KaleidoOutput(col, _Fade);
             }
