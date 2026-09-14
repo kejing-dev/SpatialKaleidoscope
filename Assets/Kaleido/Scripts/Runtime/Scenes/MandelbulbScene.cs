@@ -6,13 +6,16 @@ namespace Kaleido.Scenes
     /// Playlist item 8 "Mandelbulb" (3D object, 1.2 m diameter, 2 m in front at eye height).
     ///
     /// The bulb is sphere-traced by Kaleido/Mandelbulb on a proxy sphere, but NOT in the main XR
-    /// pass: two disabled helper cameras (one per eye) render the proxy at HALF the eye resolution
-    /// (eyeWidth/2 x eyeHeight/2, PRD) into two render textures, using exactly the main camera's
-    /// per-eye view and projection matrices. A second renderer on the same proxy, Kaleido/BulbComposite,
-    /// is drawn by the main camera and samples _BulbTexL / _BulbTexR by screen position
-    /// (ComputeScreenPos) and unity_StereoEyeIndex, so NDC coincide 1:1 whatever the texture size.
+    /// pass: two disabled helper cameras (one per eye) render the proxy at 0.6x the eye resolution
+    /// (per axis; PRD said 1/2, raised after device review) into two render textures, using exactly the
+    /// main camera's per-eye view and projection matrices. A second renderer on the same proxy,
+    /// Kaleido/BulbComposite, is drawn by the main camera and samples _BulbTexL / _BulbTexR by screen
+    /// position (ComputeScreenPos) and unity_StereoEyeIndex with a 4-tap rotated-grid filter, so NDC
+    /// coincide 1:1 whatever the texture size.
     ///
-    /// Evolution: _Power = 8 - 2 cos(2 pi t / 120) (6..10 over a 120 s round trip) is a pure function of
+    /// Evolution: _Power = 7.5 - 1 cos(2 pi t / 120) (6.5..8.5 over a 120 s round trip; the PRD's 6..10 was
+    /// narrowed after device review because at power 9-10 the surface turns thin and spiky and reads as
+    /// noise at the helper resolution) is a pure function of
     /// the evolution time handed to OnTick and the object root (base class) spins 6 deg/s with dt, so
     /// pausing (dt == 0, evoTime frozen) freezes the bulb exactly. The helper cameras are re-synchronised
     /// and re-rendered EVERY tick, paused or not, because the head keeps moving.
@@ -33,15 +36,16 @@ namespace Kaleido.Scenes
         const float ProxyMeshRadius = 1f;
         const float ProxyScale = KaleidoConfig.MandelbulbDiameter * 0.5f;   // 0.6 -> world diameter 1.2 m
 
-        const double PowerPeriodSeconds = 120.0;   // 6 -> 10 -> 6 round trip
-        const float PowerCentre = 8f;
-        const float PowerAmplitude = 2f;
+        const double PowerPeriodSeconds = 120.0;   // 6.5 -> 8.5 -> 6.5 round trip (same period and phase as before)
+        const float PowerCentre = 7.5f;
+        const float PowerAmplitude = 1f;
         const double TwoPi = System.Math.PI * 2.0;
 
         const int FallbackEyeSize = 1024;           // when neither XR nor the main camera reports a size
         const int HelperDepthBits = 16;             // Kaleido/Mandelbulb has ZWrite On
 
         static readonly Color HelperClear = new Color(0f, 0f, 0f, 0f);   // alpha = coverage for the composite
+        static readonly int ProximityId = Shader.PropertyToID("_Proximity");
 
         Material _domeMaterial;
         Material _bulbMaterial;        // Kaleido/Mandelbulb: rendered by the helper cameras only (bulb layer)
@@ -89,6 +93,14 @@ namespace Kaleido.Scenes
 
         protected override void OnTick(float dt, double evoTime)
         {
+            // walking into the object: fade the composite out between 1.6 R and 1.15 R from the centre so the
+            // ray-marched sphere never fills the whole view (the helper cameras would otherwise start inside it)
+            if (_compositeMaterial != null && Ctx.MainCamera != null && _root != null)
+            {
+                float dist = Vector3.Distance(Ctx.MainCamera.transform.position, _root.position);
+                float prox = Mathf.Clamp01((dist - ProxyScale * 1.15f) / (ProxyScale * 0.45f));
+                _compositeMaterial.SetFloat(ProximityId, prox);
+            }
             // dt is intentionally unused here: the bulb is a pure function of evoTime (frozen while paused) and
             // the 6 deg/s self-rotation is applied to the object root by the base class with the same dt.
             ApplyBulbParams(evoTime);
@@ -117,9 +129,9 @@ namespace Kaleido.Scenes
         {
             if (_bulbMaterial == null) return;
             // Wrapped in double precision before the float cast so long sessions never lose phase precision.
-            // Power changes by at most 2 * 2pi/120 = 0.105 per second: no angular quantity, no discontinuity.
+            // Power changes by at most 1 * 2pi/120 = 0.052 per second: no angular quantity, no discontinuity.
             double phase = Wrap(evoTime, PowerPeriodSeconds) * (TwoPi / PowerPeriodSeconds);
-            float power = PowerCentre - PowerAmplitude * (float)System.Math.Cos(phase);   // 6 at t = 0, 10 at t = 60 s
+            float power = PowerCentre - PowerAmplitude * (float)System.Math.Cos(phase);   // 6.5 at t = 0, 8.5 at t = 60 s
             _bulbMaterial.SetFloat(PowerId, power);
             _bulbMaterial.SetFloat(ShaderIds.EvoTime, (float)evoTime);
         }

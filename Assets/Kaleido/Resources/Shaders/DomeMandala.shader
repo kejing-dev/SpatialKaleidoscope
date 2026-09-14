@@ -21,6 +21,7 @@ Shader "Kaleido/DomeMandala"
             #pragma vertex DomeVert
             #pragma fragment Frag
             #pragma multi_compile_instancing
+            #pragma target 3.5
             #include "KaleidoCommon.hlsl"
 
             CBUFFER_START(UnityPerMaterial)
@@ -46,18 +47,20 @@ Shader "Kaleido/DomeMandala"
                 float a = FoldSector(theta + t * 0.01, w) / w;   // 0..1 inside a petal
                 float pet = cos(a * KALEIDO_PI);                 // 1 on petal centre, -1 on mirror
 
-                // anti-aliasing width from radius (thicker far out)
-                float lw = 0.06 + 0.05 * r;
-
                 // family A: outward flowing scallops
                 float sA = sin(r * 14.0 - t * 0.6 + pet * 0.9);
-                float lineA = Line(sA, lw);
                 // family B: slower, larger arcs bending the other way
                 float sB = sin(r * 7.0 - t * 0.3 - pet * 1.4 + 1.0);
-                float lineB = Line(sB, lw * 1.2);
                 // family C: fine petals between the arcs
                 float sC = sin(r * 22.0 - t * 0.9 + pet * 2.2 + 2.0);
-                float lineC = Line(sC, lw * 0.8) * smoothstep(0.15, 0.45, r);
+                // screen-space line widths (about 2.2 px wherever you look), clamped so the pole never aliases
+                float lwA = clamp(fwidth(sA) * 2.2, 0.02, 0.12);
+                float lwB = clamp(fwidth(sB) * 2.6, 0.02, 0.14);
+                float lwC = clamp(fwidth(sC) * 1.8, 0.015, 0.10);
+                float lineA = Line(sA, lwA);
+                float lineB = Line(sB, lwB);
+                float lineC = Line(sC, lwC) * smoothstep(0.15, 0.45, r);
+                float lw = lwA;
                 // radial spokes on the mirrors, faint
                 float spoke = 1.0 - smoothstep(0.0, 0.05 + 0.02 * r, (1.0 - abs(pet)) * max(r, 0.05));
 
@@ -67,12 +70,12 @@ Shader "Kaleido/DomeMandala"
                 float3 cC = float3(1.0, 0.45, 0.75);
                 float3 bg = lerp(float3(0.02, 0.01, 0.06), float3(0.10, 0.03, 0.18), 0.5 + 0.5 * sin(r * 7.0 - t * 0.3));
                 float3 col = bg;
-                col += cA * lineA * 0.9;
-                col += cB * lineB * 0.7;
-                col += cC * lineC * 0.55;
+                col += cA * lineA * 1.1;
+                col += cB * lineB * 0.9;
+                col += cC * lineC * 0.7;
                 col += float3(0.5, 0.4, 0.8) * spoke * 0.25 * smoothstep(0.05, 0.3, r);
                 // soft glow halo around the bright lines
-                float glow = (Line(sA, lw * 3.0) + Line(sB, lw * 3.5)) * 0.15;
+                float glow = (Line(sA, lwA * 4.0) + Line(sB, lwB * 4.0)) * 0.12;
                 col += glow * float3(0.5, 0.3, 0.6);
                 col *= 1.0 - 0.6 * smoothstep(2.0, 2.55, phi);
                 col *= HorizonMask(d);

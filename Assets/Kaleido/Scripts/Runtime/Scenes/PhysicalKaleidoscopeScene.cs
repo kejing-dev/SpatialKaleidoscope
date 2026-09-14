@@ -66,10 +66,10 @@ namespace Kaleido.Scenes
 
             public static Config TwoMirrorHexGlass() => new Config
             {
-                MirrorMode = MirrorMode.Sector, SectorAngleDeg = 60f, FragmentCount = 110, Style = 0, Seed = 41,
-                Palette = new[] { new Color(0.55f, 0.88f, 0.28f), new Color(0.98f, 0.60f, 0.22f), new Color(0.60f, 0.48f, 0.95f),
-                                  new Color(0.98f, 0.42f, 0.72f), new Color(0.28f, 0.82f, 0.90f), new Color(0.65f, 0.42f, 0.18f) },
-                RodFraction = 0.28f, MinSize = 0.035f, MaxSize = 0.09f, OpacityMin = 0.7f, OpacityMax = 0.92f, RoundShapes = 0.15f,
+                MirrorMode = MirrorMode.Sector, SectorAngleDeg = 60f, DarkField = true, Style = 2, FragmentCount = 110, Seed = 41,
+                Palette = new[] { new Color(0.30f, 0.95f, 0.75f), new Color(1.00f, 0.55f, 0.20f), new Color(0.60f, 0.45f, 1.00f),
+                                  new Color(1.00f, 0.35f, 0.65f), new Color(0.25f, 0.75f, 1.00f), new Color(1.00f, 0.85f, 0.30f), new Color(0.55f, 1.00f, 0.35f) },
+                RodFraction = 0.28f, MinSize = 0.035f, MaxSize = 0.09f, OpacityMin = 0.85f, OpacityMax = 1.0f, RoundShapes = 0.15f,
             };
         }
 
@@ -100,6 +100,8 @@ namespace Kaleido.Scenes
         static readonly int DarkFieldId = Shader.PropertyToID("_DarkField");
         static readonly int DiscRadiusId = Shader.PropertyToID("_DiscRadius");
         static readonly int WedgeRotationId = Shader.PropertyToID("_WedgeRotation");
+        static readonly int WedgeHalfSinId = Shader.PropertyToID("_WedgeHalfSin");
+        const int WedgeTextureHeight = 2048;   // texels along the wedge bisector (cell radius 1)
 
         Config _cfg;
         Vector3 _offset;
@@ -141,9 +143,13 @@ namespace Kaleido.Scenes
             var mr = CreateMeshObject("CellMesh", transform, _mesh, _cellMat, layer);
             mr.transform.position = Vector3.zero;
 
-            // the two-mirror scopes magnify the cell a lot more (one wedge spans the whole view): use a larger texture
-            int size = _cfg.MirrorMode == MirrorMode.Sector ? 1536 : (int)KaleidoConfig.CellTextureSize;
-            _rt = Own(KaleidoRenderUtil.CreateRT(size, size, true, "CellRT", RenderTextureFormat.ARGB32));
+            // Two-mirror scopes: the camera frames only the visible wedge (bisector along the texture V
+            // axis), so 2048 texels span the cell radius instead of ~768 -> ~2.7x sharper on the dome.
+            bool sector = _cfg.MirrorMode == MirrorMode.Sector;
+            float halfSin = Mathf.Sin(0.5f * _cfg.SectorAngleDeg * Mathf.Deg2Rad);
+            int rtW = sector ? Mathf.Max(64, Mathf.RoundToInt(WedgeTextureHeight * 2f * halfSin)) : (int)KaleidoConfig.CellTextureSize;
+            int rtH = sector ? WedgeTextureHeight : (int)KaleidoConfig.CellTextureSize;
+            _rt = Own(KaleidoRenderUtil.CreateRT(rtW, rtH, true, "CellRT", RenderTextureFormat.ARGB32));
             _rt.filterMode = FilterMode.Trilinear;
             // A regular (enabled) camera with a target texture is the most robust per-frame RT path on
             // Android/Vulkan: it renders inside the URP frame, before the main camera (lower depth),
@@ -152,8 +158,9 @@ namespace Kaleido.Scenes
             _cellCam = KaleidoRenderUtil.CreateHelperCamera("CellCamera", transform, 1 << layer, clear, true);
             _cellCam.transform.position = _offset + new Vector3(0f, 0f, -10f);
             _cellCam.transform.rotation = Quaternion.identity;
-            _cellCam.orthographicSize = 1f;
-            _cellCam.aspect = 1f;
+            _cellCam.orthographicSize = sector ? 0.5f : 1f;          // wedge: x in [0,1] along the bisector
+            _cellCam.aspect = sector ? 2f * halfSin : 1f;            // wedge: |y| <= sin(w/2) across
+            if (sector) FrameWedge(CellPhysics.GravityVectorAngleRad);
             _cellCam.nearClipPlane = 0.1f;
             _cellCam.farClipPlane = 20f;
             _cellCam.targetTexture = _rt;
@@ -172,6 +179,7 @@ namespace Kaleido.Scenes
             _domeMat.SetVector(TriCId, new Vector4(TriC.x, TriC.y, 0f, 0f));
             _domeMat.SetFloat(DarkFieldId, _cfg.DarkField ? 1f : 0f);
             _domeMat.SetFloat(DiscRadiusId, DiscRadius);
+            _domeMat.SetFloat(WedgeHalfSinId, halfSin);
             CreateDome(_domeMat);
 
             RebuildMesh();
@@ -193,8 +201,7 @@ namespace Kaleido.Scenes
             if (_cfg.MirrorMode == MirrorMode.Sector)
             {
                 // keep the visible V centred on the pile (gravity direction); frozen with the physics while paused
-                float w = _cfg.SectorAngleDeg * Mathf.Deg2Rad;
-                _domeMat.SetFloat(WedgeRotationId, CellPhysics.GravityVectorAngleRad - 0.5f * w);
+                FrameWedge(CellPhysics.GravityVectorAngleRad);
             }
         }
 
@@ -202,6 +209,15 @@ namespace Kaleido.Scenes
         {
             _fragments.Clear();
             if (_cellCam != null) { _cellCam.enabled = false; _cellCam.targetTexture = null; }
+        }
+
+        /// <summary>Point the cell camera's up axis along the wedge bisector (gravity direction) and frame [0,1] x [-s,s].</summary>
+        void FrameWedge(float bisectorRad)
+        {
+            if (_cellCam == null) return;
+            var up = new Vector3(Mathf.Cos(bisectorRad), Mathf.Sin(bisectorRad), 0f);
+            _cellCam.transform.rotation = Quaternion.LookRotation(Vector3.forward, up);
+            _cellCam.transform.position = _offset + up * 0.5f + new Vector3(0f, 0f, -10f);
         }
 
         /// <summary>Editor capture only: render the cell camera immediately (in play mode it renders itself).</summary>
@@ -385,8 +401,9 @@ namespace Kaleido.Scenes
                 Vector2 c = fr.Body.position;
                 float rot = fr.Body.rotation * Mathf.Deg2Rad;
                 float cs = Mathf.Cos(rot), sn = Mathf.Sin(rot);
-                // quad slightly larger than the shape so the AA edge is never clipped
-                float hw = fr.HalfW * 1.08f, hh = fr.HalfH * 1.08f;
+                // quad larger than the shape: room for the AA edge, and for the analytic halo in dark field
+                float pad = _cfg.DarkField ? fr.HalfW * 0.75f : fr.HalfW * 0.08f;
+                float hw = fr.HalfW + pad, hh = fr.HalfH + pad;
                 int b = _verts.Count;
                 for (int k = 0; k < 4; k++)
                 {

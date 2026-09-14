@@ -15,6 +15,7 @@ Shader "Kaleido/DomeMirror"
         _Fade ("Fade", Range(0, 1)) = 1
         _DiscRadius ("Disc radius", Float) = 1.0
         _WedgeRotation ("Wedge rotation (rad)", Float) = 0
+        _WedgeHalfSin ("sin(half sector angle)", Float) = 0.5
     }
     SubShader
     {
@@ -48,6 +49,7 @@ Shader "Kaleido/DomeMirror"
                 float _Fade;
                 float _DiscRadius;
                 float _WedgeRotation;
+                float _WedgeHalfSin;
             CBUFFER_END
 
             float4 Frag(DomeVaryings IN) : SV_Target
@@ -72,16 +74,19 @@ Shader "Kaleido/DomeMirror"
                 if (_Mode < 0.5)
                 {
                     // Two-mirror scope: the physical cell is a disc of radius _DiscRadius with the
-                    // mirror apex at its centre. We only "see" the wedge [0, w]; reflections tile it.
+                    // mirror apex at its centre. Only the wedge [-w/2, w/2] around the bisector is visible;
+                    // the cell camera frames exactly that wedge (bisector = texture V axis, rotated with
+                    // gravity on the C# side), so the whole texture resolution goes to what is shown.
                     float r = phi * _Scale;
                     float a = FoldSector(theta, _SectorAngle);
-                    // the mirrors' V is rotated so that its centre points along the cell's gravity
-                    // (fragments settle at the bottom of the tube and stay in view, as in a real scope)
-                    float ca = a + _WedgeRotation;
-                    float2 cell = r * float2(cos(ca), sin(ca));
-                    float2 uv = cell * 0.5 + 0.5;
-                    float3 tex = SAMPLE_TEXTURE2D_GRAD(_CellTex, sampler_CellTex, uv, gx, gy).rgb;
-                    float3 glow = SAMPLE_TEXTURE2D_LOD(_CellTex, sampler_CellTex, uv, 3.5).rgb;
+                    float ar = a - 0.5 * _SectorAngle;                       // angle from the bisector
+                    float wx = r * cos(ar);                                  // along the bisector 0..1
+                    float wy = r * sin(ar);                                  // across, |wy| <= sin(w/2)
+                    float hs = max(_WedgeHalfSin, 0.05);
+                    float2 uv = float2(0.5 - wy / (2.0 * hs), wx);
+                    float2 gxu = float2(gx.x / (2.0 * hs), gx.y);
+                    float2 gyu = float2(gy.x / (2.0 * hs), gy.y);
+                    float3 tex = SAMPLE_TEXTURE2D_GRAD(_CellTex, sampler_CellTex, uv, gxu, gyu).rgb;
                     float inside = 1.0 - smoothstep(_DiscRadius * 0.97, _DiscRadius * 1.02, r);
 
                     // number of reflections needed to reach this sector: each bounce loses a little light
@@ -100,7 +105,7 @@ Shader "Kaleido/DomeMirror"
                     float3 tube = float3(0.02, 0.02, 0.03) + rim * float3(0.06, 0.06, 0.08);
                     if (_DarkField > 0.5)
                     {
-                        rgb = tex * 1.15 + glow * 0.7;
+                        rgb = tex * 1.15;                                   // halo is baked into the cell texture
                         rgb += glint * float3(0.12, 0.14, 0.18);
                         rgb = lerp(rgb, rgb * 0.35, seam);
                         rgb = lerp(tube * 0.6, rgb, inside);
@@ -129,8 +134,7 @@ Shader "Kaleido/DomeMirror"
                     float backlight = 1.0 - 0.28 * smoothstep(0.6, KALEIDO_COVERAGE_RAD, phi);
                     if (_DarkField > 0.5)
                     {
-                        float3 glow = SAMPLE_TEXTURE2D_LOD(_CellTex, sampler_CellTex, uv, 3.5).rgb;
-                        rgb = (tex * 1.15 + glow * 0.7) * (backlight + 0.05);
+                        rgb = tex * 1.15 * (backlight + 0.05);
                         rgb += glint * float3(0.12, 0.14, 0.18);
                     }
                     else

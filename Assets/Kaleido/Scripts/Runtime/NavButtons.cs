@@ -88,6 +88,17 @@ namespace Kaleido
             return best;
         }
 
+        /// <summary>Distance along the ray to the plane of button <paramref name="index"/> (0 if none).</summary>
+        public float HitDistance(Ray ray, int index)
+        {
+            if (!_placed || index < 0 || index > 1) return 0f;
+            var t = _buttons[index];
+            float denom = Vector3.Dot(t.forward, ray.direction);
+            if (Mathf.Abs(denom) < 1e-4f) return 0f;
+            float dist = Vector3.Dot(t.position - ray.origin, t.forward) / denom;
+            return dist > 0f ? dist : 0f;
+        }
+
         public void SetHover(int index)
         {
             for (int i = 0; i < 2; i++) _hover[i] = i == index ? 1f : 0f;

@@ -41,12 +41,19 @@ Shader "Kaleido/CellMultiply"
 
                 float seed = IN.uv2.y;
                 float n = KNoise2(IN.uv * 2.5 + seed * 23.0);
-                float3 tint = lerp(IN.color.rgb, IN.color.rgb * IN.color.rgb, 0.3);   // slightly deeper glass, still luminous
-                // glass body: thicker (darker) toward the rim, bright bevel just inside the edge
+                float3 tint = lerp(IN.color.rgb, IN.color.rgb * IN.color.rgb, 0.55);  // jewel-toned, saturated glass
+                // crystal body: dark leading line at the edge, bright bevel inside it, flat facet streaks
                 float depth = saturate(-sd * 1.6);                                    // 0 at edge .. 1 inside
-                float bevel = smoothstep(0.0, 0.18, -sd) * (1.0 - smoothstep(0.18, 0.42, -sd));
-                float3 body = tint * (0.9 + 0.1 * depth) * (0.94 + 0.06 * n);
-                body = lerp(body, body * 0.6 + 0.25, bevel * 0.45);                  // light catching the bevel
+                float leading = smoothstep(0.0, 0.07, -sd);                           // thin dark rim (cut edge)
+                float bevel = smoothstep(0.05, 0.16, -sd) * (1.0 - smoothstep(0.16, 0.34, -sd));
+                // one broad diagonal highlight (a flat facet catching the light) plus a faint second glint
+                float2 fdir = normalize(float2(0.8, 0.6 + 0.4 * seed));
+                float facetA = smoothstep(0.35, 0.05, abs(dot(IN.uv, fdir) - (0.25 - 0.3 * seed)));
+                float facetB = smoothstep(0.18, 0.02, abs(dot(IN.uv, float2(-fdir.y, fdir.x)) + 0.45)) * 0.5;
+                float3 body = tint * (0.85 + 0.15 * depth) * (0.95 + 0.05 * n);
+                body = lerp(body, body * 0.5 + 0.38, bevel * 0.55);                  // light catching the bevel
+                body = lerp(body, body * 0.6 + 0.4, saturate(facetA * 0.45 + facetB * 0.3) * depth);  // facet highlight
+                body *= lerp(0.45, 1.0, leading);                                    // dark cut edge
                 float opacity = IN.color.a;
                 if (IN.uv3.y > 0.5)
                 {

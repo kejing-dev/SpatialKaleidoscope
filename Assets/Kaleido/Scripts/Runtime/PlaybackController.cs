@@ -17,6 +17,7 @@ namespace Kaleido
         public Transform ObjectAnchor;
         public GameObject FirstLaunchHint;     // optional; shown 3 s on the very first launch
         public NavButtons Buttons;             // resident previous / next buttons below the horizon
+        public PointerRayVisual Rays;          // visible controller rays
         public bool IsEditorCapture;
 
         public SceneDefinition[] Playlist { get; private set; }
@@ -144,8 +145,15 @@ namespace Kaleido
                 Buttons.Step(realDt);
             }
 
+            // visible controller rays: length to the button they point at, brighter while hovering
+            if (Rays != null && Input != null)
+            {
+                UpdateRay(0, Input.LeftControllerRay);
+                UpdateRay(1, Input.RightControllerRay);
+            }
+
             if (frame.TogglePause) SetPaused(!Paused);
-            else if (frame.PreviousKey && _startFadeT >= 1f) RequestStep(-1);
+            else if (frame.Previous && _startFadeT >= 1f) { Buttons?.Flash(0); RequestStep(-1); }
             else if (frame.Click && _startFadeT >= 1f)                         // no paging during the 1 s start fade
             {
                 // a click means "next" unless it targets a button (left = previous, right = next)
@@ -213,6 +221,24 @@ namespace Kaleido
                 _hintTimer -= realDt;
                 if (_hintTimer <= 0f && FirstLaunchHint != null) FirstLaunchHint.SetActive(false);
             }
+        }
+
+        void UpdateRay(int index, Ray? ray)
+        {
+            if (!ray.HasValue) { Rays.Set(index, null, 0f, false); return; }
+            float length = PointerRayVisual.DefaultLength;
+            bool hover = false;
+            if (Buttons != null)
+            {
+                int hit = Buttons.HitTest(ray.Value);
+                if (hit >= 0)
+                {
+                    hover = true;
+                    float d = Buttons.HitDistance(ray.Value, hit);
+                    if (d > 0f) length = d;
+                }
+            }
+            Rays.Set(index, ray, length, hover);
         }
 
         // ------------------------------------------------------------------ commands
@@ -313,10 +339,10 @@ namespace Kaleido
         }
 
         // ------------------------------------------------------------------ persistence & lifecycle
-        static int LoadIndex()
+        int LoadIndex()
         {
             int i = PlayerPrefs.GetInt(KaleidoConfig.PrefsIndexKey, 0);
-            if (i < 0 || i >= KaleidoConfig.SceneCount) i = 0;   // bad value -> scene 1
+            if (i < 0 || i >= Playlist.Length) i = 0;   // bad value -> scene 1
             return i;
         }
 

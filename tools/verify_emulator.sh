@@ -4,7 +4,7 @@
 set -u
 cd "$(dirname "$0")/.."; PROJ="$(pwd)"
 RUN="${1:-run}"
-SCENES="${2:-1 2 3 4 5 6 7 8 9 10 11 12}"
+SCENES="${2:-1 2 3 4 5 6 7 8 9 10}"
 OUT="Captures/emulator/$RUN"
 mkdir -p "$OUT"
 PKG="com.kejing.spatialkaleidoscope"
@@ -26,6 +26,8 @@ for s in $SCENES; do
   cmd "look 0 0" >/dev/null
   cmd "goto $s" >/dev/null
   cmd "warp ${WARP:-25}" >/dev/null      # let physics / growth / trails evolve
+  # freeze playback while capturing so the 90 s auto-advance cannot switch scenes mid-way
+  cmd status | grep -q "paused=False" && cmd pause >/dev/null
   waitframes 2
   for v in $VIEWS; do
     IFS=: read name yaw pitch <<< "$v"
@@ -33,6 +35,7 @@ for s in $SCENES; do
     shot "scene$(printf %02d $s)_$name"
   done
   cmd status
+  cmd status | grep -q "paused=True" && cmd pause >/dev/null
 done
 cmd "look 0 0" >/dev/null
 echo "--- errors in logcat:"; adb logcat -d -s Unity:* AndroidRuntime:* | grep -i -E "exception|error|kaleido" | grep -v "ValidationExceptions" | tail -30

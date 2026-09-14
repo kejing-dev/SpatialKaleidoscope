@@ -17,17 +17,18 @@ namespace Kaleido
         /// <summary>Ray of the source that clicked (controller aim, hand aim, or head), if any.</summary>
         public bool HasClickRay;
         public Ray ClickRay;
-        /// <summary>Dev keyboard: explicit previous (left arrow).</summary>
-        public bool PreviousKey;
+        /// <summary>Explicit previous (any grip, or the left arrow key).</summary>
+        public bool Previous;
         public bool TogglePause;
-        public bool AnyValid => Click || PreviousKey || TogglePause;
+        public bool AnyValid => Click || Previous || TogglePause;
     }
 
     /// <summary>
     /// Unified input layer. Sources:
     ///  - eye-hand: the system hand-interaction pinch (PicoHandInteraction Input System device,
     ///    pinchValue / pinchReady / pointer pose), falling back to the legacy aim state
-    ///  - VR motion controllers: trigger or A/X = click, any grip = pause
+    ///  - VR motion controllers: any trigger = click (next / the button it points at), any grip = previous,
+    ///    any face button (A/B/X/Y) = pause
     ///  - keyboard / mouse (development only)
     /// Rules: every press / short pinch fires exactly once; long pinch (>= 1 s) toggles pause once and
     /// its release does nothing; pause wins in a frame; tracking loss cancels an in-progress pinch;
@@ -40,8 +41,11 @@ namespace Kaleido
         public Camera Head;                       // for head-ray fallback
         public Transform TrackingSpace;           // XR Origin's camera offset: device poses are local to it
 
-        // controller edge state (combined per side)
-        bool _rightHeld, _leftHeld, _gripHeld;
+        // controller edge state (combined over both controllers per category)
+        bool _triggerHeld, _gripHeld, _faceHeld;
+        /// <summary>Aim rays of the tracked motion controllers this frame (null when not tracked).</summary>
+        public Ray? LeftControllerRay { get; private set; }
+        public Ray? RightControllerRay { get; private set; }
 
         // hand pinch state
         struct PinchState { public bool Pinching; public double Start; public bool LongFired; public bool Valid; public bool AwaitRelease; }
@@ -61,7 +65,7 @@ namespace Kaleido
         {
             _rightPinch = Cancelled;
             _leftPinch = Cancelled;
-            ReadControllers(out _rightHeld, out _leftHeld, out _gripHeld);
+            ReadControllers(out _triggerHeld, out _gripHeld, out _faceHeld);
             Current = default;
         }
 
@@ -73,14 +77,22 @@ namespace Kaleido
             string src = null;
             _pointerRays.Clear();
 
-            // ---------------- controllers
-            ReadControllers(out bool rightNow, out bool leftNow, out bool gripNow);
-            if (rightNow && !_rightHeld) { Click(ref f, ControllerRay(true), "controller-right"); src = "controller-right"; }
-            if (leftNow && !_leftHeld) { Click(ref f, ControllerRay(false), "controller-left"); src = "controller-left"; }
-            if (gripNow && !_gripHeld) { pause = true; src = "controller-grip"; }
-            _rightHeld = rightNow; _leftHeld = leftNow; _gripHeld = gripNow;
-            AddPointer(ControllerRay(true));
-            AddPointer(ControllerRay(false));
+            // ---------------- controllers (trigger = next / click, grip = previous, A/B/X/Y = pause)
+            RightControllerRay = ControllerRay(true);
+            LeftControllerRay = ControllerRay(false);
+            ReadControllers(out bool triggerNow, out bool gripNow, out bool faceNow);
+            if (triggerNow && !_triggerHeld)
+            {
+                // click ray: the controller whose trigger is down (right preferred when both)
+                bool rightTrig = TriggerPressed(XRController.rightHand, UnityEngine.XR.XRNode.RightHand);
+                Click(ref f, rightTrig ? RightControllerRay : LeftControllerRay, "controller-trigger");
+                src = "controller-trigger";
+            }
+            if (gripNow && !_gripHeld) { f.Previous = true; src = "controller-grip"; }
+            if (faceNow && !_faceHeld) { pause = true; src = "controller-face"; }
+            _triggerHeld = triggerNow; _gripHeld = gripNow; _faceHeld = faceNow;
+            AddPointer(RightControllerRay);
+            AddPointer(LeftControllerRay);
 
             // ---------------- eye-hand (system pinch)
             int active = ActiveInputDeviceId();
@@ -122,7 +134,7 @@ namespace Kaleido
                 if (kb != null)
                 {
                     if (kb.rightArrowKey.wasPressedThisFrame) { Click(ref f, HeadRay(), "keyboard"); src = "keyboard"; }
-                    if (kb.leftArrowKey.wasPressedThisFrame) { f.PreviousKey = true; src = "keyboard"; }
+                    if (kb.leftArrowKey.wasPressedThisFrame) { f.Previous = true; src = "keyboard"; }
                     if (kb.spaceKey.wasPressedThisFrame) { pause = true; src = "keyboard"; }
                 }
                 var mouse = Mouse.current;
@@ -132,8 +144,9 @@ namespace Kaleido
             // head ray is always a pointer (hover feedback when looking at a button)
             AddPointer(HeadRay());
 
-            // ---------------- arbitration: pause wins
+            // ---------------- arbitration: pause wins; next + previous in the same frame cancel out
             if (pause) { f = new InputFrame { TogglePause = true }; }
+            else if (f.Click && f.Previous) { f = new InputFrame(); }
             if (src != null) LastSource = src;
             Current = f;
             return f;
@@ -161,12 +174,37 @@ namespace Kaleido
         }
 
         // ------------------------------------------------------------------ controllers
-        static void ReadControllers(out bool right, out bool left, out bool grip)
+        static void ReadControllers(out bool trigger, out bool grip, out bool face)
         {
-            right = SidePressed(XRController.rightHand, UnityEngine.XR.XRNode.RightHand);
-            left = SidePressed(XRController.leftHand, UnityEngine.XR.XRNode.LeftHand);
+            trigger = TriggerPressed(XRController.rightHand, UnityEngine.XR.XRNode.RightHand) ||
+                      TriggerPressed(XRController.leftHand, UnityEngine.XR.XRNode.LeftHand);
             grip = GripPressed(XRController.rightHand, UnityEngine.XR.XRNode.RightHand) ||
                    GripPressed(XRController.leftHand, UnityEngine.XR.XRNode.LeftHand);
+            face = FacePressed(XRController.rightHand, UnityEngine.XR.XRNode.RightHand) ||
+                   FacePressed(XRController.leftHand, UnityEngine.XR.XRNode.LeftHand);
+        }
+
+        static bool TriggerPressed(XRController ctrl, UnityEngine.XR.XRNode node)
+        {
+            bool pressed = false;
+            if (ctrl != null) pressed |= Button(ctrl, "triggerPressed") || Button(ctrl, "triggerButton");
+            var dev = UnityEngine.XR.InputDevices.GetDeviceAtXRNode(node);
+            if (dev.isValid && dev.TryGetFeatureValue(UnityEngine.XR.CommonUsages.triggerButton, out bool t) && t) pressed = true;
+            return pressed;
+        }
+
+        /// <summary>A / B (right) or X / Y (left): primaryButton / secondaryButton.</summary>
+        static bool FacePressed(XRController ctrl, UnityEngine.XR.XRNode node)
+        {
+            bool pressed = false;
+            if (ctrl != null) pressed |= Button(ctrl, "primaryButton") || Button(ctrl, "secondaryButton");
+            var dev = UnityEngine.XR.InputDevices.GetDeviceAtXRNode(node);
+            if (dev.isValid)
+            {
+                if (dev.TryGetFeatureValue(UnityEngine.XR.CommonUsages.primaryButton, out bool a) && a) pressed = true;
+                if (dev.TryGetFeatureValue(UnityEngine.XR.CommonUsages.secondaryButton, out bool b) && b) pressed = true;
+            }
+            return pressed;
         }
 
         Ray? ControllerRay(bool right)
@@ -180,23 +218,6 @@ namespace Kaleido
             var pr = ctrl.TryGetChildControl<QuaternionControl>("pointerRotation");
             if (pp != null && pr != null) return LocalPoseRay(pp.ReadValue(), pr.ReadValue());
             return LocalPoseRay(ctrl.devicePosition.ReadValue(), ctrl.deviceRotation.ReadValue());
-        }
-
-        static bool SidePressed(XRController ctrl, UnityEngine.XR.XRNode node)
-        {
-            bool pressed = false;
-            if (ctrl != null)
-            {
-                pressed |= Button(ctrl, "triggerPressed") || Button(ctrl, "triggerButton");
-                pressed |= Button(ctrl, "primaryButton");
-            }
-            var dev = UnityEngine.XR.InputDevices.GetDeviceAtXRNode(node);
-            if (dev.isValid)
-            {
-                if (dev.TryGetFeatureValue(UnityEngine.XR.CommonUsages.triggerButton, out bool t) && t) pressed = true;
-                if (dev.TryGetFeatureValue(UnityEngine.XR.CommonUsages.primaryButton, out bool p) && p) pressed = true;
-            }
-            return pressed;
         }
 
         static bool GripPressed(XRController ctrl, UnityEngine.XR.XRNode node)

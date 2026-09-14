@@ -1,6 +1,7 @@
-// Scene 7: Julia set z -> z^2 + c, rendered to a 2D texture via Blit once per frame.
-// c moves on a closed path (90 s loop). Smooth (continuous) escape-time colouring,
-// up to _MaxIter iterations with early exit.
+// Scene 7: Julia set z -> z^2 + c, rendered to a 2D texture via Blit (one band per frame,
+// see FractalTexturePipeline). c moves on a closed path (90 s loop). Distance-estimate
+// colouring (continuous, self anti-aliasing), one sample per texel, up to _MaxIter iterations
+// with early exit.
 Shader "Kaleido/ComputeJulia"
 {
     Properties
@@ -9,7 +10,8 @@ Shader "Kaleido/ComputeJulia"
         _MaxIter ("Max iterations", Float) = 300
         _View ("View (centre.xy, half-size)", Vector) = (0, 0, 1.6, 0)
         _EvoTime ("Evolution time", Float) = 0
-        _TexelSize ("Texel size (1/resolution)", Float) = 0.0009765625
+        _TexelSize ("Texel size (1/resolution)", Float) = 0.00048828125
+        _Band ("Band (index, count)", Vector) = (0, 1, 0, 0)
     }
     SubShader
     {
@@ -29,6 +31,7 @@ Shader "Kaleido/ComputeJulia"
                 float4 _View;
                 float _EvoTime;
                 float _TexelSize;
+                float4 _Band;      // (band index, band count, 0, 0): only this horizontal band is shaded
             CBUFFER_END
 
             struct A { float4 positionOS : POSITION; float2 uv : TEXCOORD0; };
@@ -44,7 +47,9 @@ Shader "Kaleido/ComputeJulia"
 
             // Distance-estimate colouring with a pixel-size threshold: anything inside the set or
             // finer than a texel is painted with one solid colour (no aliasing, no speckle);
-            // the exterior is a smooth gradient of the distance to the set.
+            // the exterior is a smooth gradient of the distance to the set. Because the distance
+            // estimate is a continuous function of the point, a single sample per texel is already
+            // anti-aliased (no supersampling needed).
             float3 Shade(float2 z0, float2 c, int maxIter, float pix)
             {
                 float2 z = z0;
@@ -76,18 +81,13 @@ Shader "Kaleido/ComputeJulia"
 
             float4 Frag(V IN) : SV_Target
             {
+                // frame slicing: texels outside the requested horizontal band keep their content
+                if (floor(IN.uv.y * _Band.y) != _Band.x) discard;
                 float2 c = _C.xy;
                 int maxIter = (int)_MaxIter;
-                float texel = _TexelSize;
-                float pix = _View.z * 2.0 * texel;
-                float2 o1 = float2(0.125, 0.375) * texel;
-                float2 o2 = float2(-0.375, 0.125) * texel;
-                float3 col = 0;
-                col += Shade(_View.xy + ((IN.uv + o1) * 2.0 - 1.0) * _View.z, c, maxIter, pix);
-                col += Shade(_View.xy + ((IN.uv - o1) * 2.0 - 1.0) * _View.z, c, maxIter, pix);
-                col += Shade(_View.xy + ((IN.uv + o2) * 2.0 - 1.0) * _View.z, c, maxIter, pix);
-                col += Shade(_View.xy + ((IN.uv - o2) * 2.0 - 1.0) * _View.z, c, maxIter, pix);
-                return float4(col * 0.25, 1.0);
+                float pix = _View.z * 2.0 * _TexelSize;      // one texel in the complex plane
+                float2 z0 = _View.xy + (IN.uv * 2.0 - 1.0) * _View.z;
+                return float4(Shade(z0, c, maxIter, pix), 1.0);
             }
             ENDHLSL
         }

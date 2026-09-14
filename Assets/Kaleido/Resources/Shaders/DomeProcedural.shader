@@ -62,11 +62,11 @@ Shader "Kaleido/DomeProcedural"
                 float edge2 = smoothstep(0.0, 0.12, g2 - g1);
                 float shade2 = 0.75 + 0.25 * KHash21(id2);
 
-                // radial rings drifting outward and a soft centre highlight
-                float rings = 0.5 + 0.5 * cos(r * 7.0 - _Drift.z * 0.25);
+                // soft centre highlight only: no concentric rings (they read as horizontal bands from inside)
                 float centre = 1.0 - smoothstep(0.0, 0.35, r);
+                float breathe = 0.9 + 0.1 * KNoise2(p * 0.9 + _Drift.z * 0.01);     // very slow, large-scale light
 
-                float3 col = col1 * (0.55 + 0.45 * rings) * shade2;
+                float3 col = col1 * breathe * shade2;
                 col *= 0.35 + 0.65 * edge1;                // dark leading between cells
                 col *= 0.8 + 0.2 * edge2;                  // faint facet lines
                 col += centre * float3(0.25, 0.22, 0.12);

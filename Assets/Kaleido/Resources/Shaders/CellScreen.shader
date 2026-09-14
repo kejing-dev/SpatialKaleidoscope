@@ -36,13 +36,35 @@ Shader "Kaleido/CellScreen"
                 float sd = SdFragment(IN.uv, IN.uv2.x, IN.uv3.x);
                 float aa = max(fwidth(sd), 1e-4);
                 float cover = 1.0 - smoothstep(-aa, aa, sd);
-                if (cover <= 0.002) discard;
-                // bead: luminous core, brighter rim ring, soft halo just outside the edge
-                float depth = saturate(-sd * 1.4);
-                float core = 0.55 + 0.45 * depth;
-                float rim = smoothstep(0.0, 0.12, -sd) * (1.0 - smoothstep(0.12, 0.3, -sd));
-                float3 col = IN.color.rgb * core + rim * (IN.color.rgb * 0.5 + 0.35);
-                col *= IN.color.a * cover;
+                float outside = max(sd, 0.0);
+                float3 col;
+                if (IN.uv3.y > 1.5)
+                {
+                    // crystal shard: saturated body with a bright cut edge, a flat facet highlight and a
+                    // pale inner glow; sharp SDF edge, soft halo outside
+                    float seed = IN.uv2.y;
+                    float depth = saturate(-sd * 1.3);
+                    float edge = smoothstep(0.0, 0.06, -sd) * (1.0 - smoothstep(0.06, 0.16, -sd));
+                    float2 fdir = normalize(float2(0.75, 0.55 + 0.5 * seed));
+                    float facet = smoothstep(0.3, 0.04, abs(dot(IN.uv, fdir) - (0.2 - 0.35 * seed)));
+                    float3 base = IN.color.rgb * (0.55 + 0.35 * depth);
+                    float3 body = base + edge * (IN.color.rgb * 0.4 + 0.5) + facet * depth * (0.25 + IN.color.rgb * 0.25);
+                    float halo = exp(-outside * 7.0) * 0.28 + exp(-outside * 2.2) * 0.05;   // tight halo: shards stay crisp, background stays dark
+                    col = body * cover + IN.color.rgb * halo * (1.0 - cover);
+                }
+                else
+                {
+                    // bead: luminous core, thin bright rim ring
+                    float depth = saturate(-sd * 1.4);
+                    float core = 0.5 + 0.5 * depth;
+                    float rim = smoothstep(0.0, 0.07, -sd) * (1.0 - smoothstep(0.07, 0.2, -sd));
+                    float3 bead = IN.color.rgb * core + rim * (IN.color.rgb * 0.45 + 0.45);
+                    // analytic halo: smooth exponential falloff of the signed distance outside the bead,
+                    // computed at full texture resolution (no blurred mip -> no blocky glow)
+                    float halo = exp(-outside * 5.5) * 0.55 + exp(-outside * 1.8) * 0.12;
+                    col = bead * cover + IN.color.rgb * halo * (1.0 - cover);
+                }
+                col *= IN.color.a;
                 return float4(saturate(col), 1.0);
             }
             ENDHLSL

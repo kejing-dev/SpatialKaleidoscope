@@ -95,6 +95,9 @@ namespace Kaleido.Editor
             var buttonsGO = new GameObject("NavButtons");
             buttonsGO.transform.SetParent(root.transform, false);
             var buttons = buttonsGO.AddComponent<NavButtons>();
+            var raysGO = new GameObject("PointerRays");
+            raysGO.transform.SetParent(root.transform, false);
+            var rays = raysGO.AddComponent<PointerRayVisual>();
             var governor = root.AddComponent<BrightnessGovernor>();
             var tilt = root.AddComponent<HeadTilt>();
             tilt.Source = cam;
@@ -106,6 +109,7 @@ namespace Kaleido.Editor
             controller.DomeRoot = domeRoot;
             controller.ObjectAnchor = anchor;
             controller.Buttons = buttons;
+            controller.Rays = rays;
             // dev-only TCP command channel; enabled only when the scene is built with KALEIDO_DEBUG=1
             var dbg = root.AddComponent<KaleidoDebugServer>();
             dbg.Controller = controller;
@@ -134,7 +138,7 @@ namespace Kaleido.Editor
             hint.transform.position = new Vector3(0f, 1.45f, 1.6f);
             hint.transform.rotation = Quaternion.identity;
             var tm = hint.AddComponent<TextMesh>();
-            tm.text = "Pinch or trigger : next\nLook down : < previous   next >\nHold pinch 1 s / grip : pause";
+            tm.text = "Trigger / pinch : next     Grip : previous\nA B X Y / hold pinch 1 s : pause\nLook down : < previous   next >";
             tm.fontSize = 48;
             tm.characterSize = 0.012f;
             tm.anchor = TextAnchor.MiddleCenter;

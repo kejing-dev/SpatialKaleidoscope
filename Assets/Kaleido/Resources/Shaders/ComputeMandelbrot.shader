@@ -15,6 +15,7 @@ Shader "Kaleido/ComputeMandelbrot"
         _EvoTime ("Evolution time", Float) = 0
         _ZoomLog ("log10 zoom", Float) = 0
         _TexelSize ("Texel size (1/resolution)", Float) = 0.0009765625
+        _Band ("Band (index, count)", Vector) = (0, 1, 0, 0)
     }
     SubShader
     {
@@ -39,6 +40,7 @@ Shader "Kaleido/ComputeMandelbrot"
                 float _EvoTime;
                 float _ZoomLog;
                 float _TexelSize;
+                float4 _Band;      // (band index, band count, 0, 0): only this horizontal band is shaded
             CBUFFER_END
 
             struct A { float4 positionOS : POSITION; float2 uv : TEXCOORD0; };
@@ -107,6 +109,7 @@ Shader "Kaleido/ComputeMandelbrot"
 
             float4 Frag(V IN) : SV_Target
             {
+                if (floor(IN.uv.y * _Band.y) != _Band.x) discard;
                 float pix = _HalfSize * 2.0 * _TexelSize;      // one texel in the complex plane
                 return float4(Shade(IN.uv, pix), 1.0);
             }

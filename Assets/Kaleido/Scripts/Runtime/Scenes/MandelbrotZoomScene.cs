@@ -11,13 +11,19 @@ namespace Kaleido.Scenes
     /// delta in float. Because the nucleus is superattracting the reference never escapes
     /// (|f^897(0)| ~ 1e-11, bounded for every iteration count), so one reference serves the whole dive.
     ///
+    /// Rendering goes through a <see cref="FractalTexturePipeline"/>: a 1024x1024 image is drawn in
+    /// 2 horizontal bands, one band per tick (0.5M texels per tick, plain perturbation iteration,
+    /// no derivative term), into the back texture while the dome shows the front one. The zoom
+    /// parameters are frozen per image, so the zoom advances once per image (every 2 ticks: a
+    /// 0.85 % step at 90 Hz, invisible) and the two bands can never show different depths.
+    ///
     /// Cycle (scene-local evolution time, sum of dt so dt == 0 freezes everything, GPU work included):
-    ///   A  0 - 60 s  log10(zoom) = 10 * t / 60  (constant exponential speed), iterations 250 -> 4000
+    ///   A  0 - 60 s  log10(zoom) = 10 * t / 60  (constant exponential speed), iterations 250 -> 1200 (cap)
     ///   B 60 - 62 s  hold at 1e10
     ///   C 62 - 64 s  cycleFade 1 -> 0, then the cycle restarts at 1x and fades in over 1.5 s.
     /// The first cycle starts fully visible so the 0.6 s playlist crossfade can finish at _Fade = 1.
     /// The dome material's _Fade is domeFade (crossfade from the base class) * cycleFade.
-    /// The fractal texture is recomputed only when dt > 0 (plus once at setup), so pausing freezes it.
+    /// Bands are rendered only when dt > 0 (plus a whole image at setup), so pausing freezes the picture.
     /// No Update / Time.* anywhere: works identically in play mode and under the editor capture tool.
     /// </summary>
     public class MandelbrotZoomScene : KaleidoSceneBase
@@ -26,7 +32,8 @@ namespace Kaleido.Scenes
         const double CenterRe = -0.74364392404504587;
         const double CenterIm = 0.13182591993348175;
         const int RefCount = 4096;          // reference orbit length; _MaxIter is always < RefCount
-        const int TextureSize = 768;        // fractal render target (square, mipmapped for the dome border)
+        const int TextureSize = 896;       // fractal render target (square, mipmapped + trilinear, colour only)
+        const int BandsPerImage = 2;        // one band per tick -> a new image (and zoom step) every 2 ticks
 
         // ---- zoom cycle (seconds of scene-local evolution time)
         const float ZoomSeconds = 60f;
@@ -37,30 +44,29 @@ namespace Kaleido.Scenes
         const float MaxLog10Zoom = 10f;     // 1e10
         const float BaseHalfSize = 1.5f;    // half view size in the complex plane at 1x
         const float MinIterations = 250f;
-        const float MaxIterations = 1500f;  // < RefCount (4096)
+        const float MaxIterations = 1200f;  // cap (< RefCount 4096, < the 2048 [loop] bound in the shader)
         const float IterationsPerDecade = 120f;
-        const float PlaneScale = 0.526f;     // DomeTexture _Scale
+        const float PlaneScale = 0.526f;    // DomeTexture _Scale (_FoldRadius stays at its 1.9 default)
 
         // Matches the Properties blocks of Kaleido/ComputeMandelbrot and Kaleido/DomeTexture exactly.
-        // _EvoTime / _Fade / _MainTex come from ShaderIds.
+        // _EvoTime / _Fade / _MainTex come from ShaderIds; "_Band" is driven by FractalTexturePipeline.
         static readonly int RefOrbitId = Shader.PropertyToID("_RefOrbit");
         static readonly int RefCountId = Shader.PropertyToID("_RefCount");
-        static readonly int TexelSizeId = Shader.PropertyToID("_TexelSize");
         static readonly int HalfSizeId = Shader.PropertyToID("_HalfSize");
+        static readonly int TexelSizeId = Shader.PropertyToID("_TexelSize");
         static readonly int MaxIterId = Shader.PropertyToID("_MaxIter");
         static readonly int ZoomLogId = Shader.PropertyToID("_ZoomLog");
         static readonly int ScaleId = Shader.PropertyToID("_Scale");
+        static readonly int LodBiasId = Shader.PropertyToID("_LodBias");
 
         Material _computeMaterial;   // Kaleido/ComputeMandelbrot (Own'd, not a dome/object material)
         Material _domeMaterial;      // Kaleido/DomeTexture (registered via NewDomeMaterial)
-        RenderTexture _fractalRT;
+        FractalTexturePipeline _pipe;
         Texture2D _refOrbit;
         int _refCount = RefCount;
 
         double _localTime;           // scene-local evolution time = sum of dt (frozen while paused)
         float _domeFade;             // last crossfade value handed to OnFade by the base class
-        int _frameParity;
-        bool _renderedOnce;
         float _cycleFade = 1f;       // in-scene fade of the zoom cycle (1 during the first dive)
 
         // ------------------------------------------------------------------ lifecycle
@@ -72,43 +78,61 @@ namespace Kaleido.Scenes
 
             _refOrbit = BuildReferenceOrbit();
 
-            _fractalRT = Own(KaleidoRenderUtil.CreateRT(TextureSize, TextureSize, true, "MandelbrotRT"));
+            _pipe = new FractalTexturePipeline(TextureSize, RenderTextureFormat.ARGB32, true, BandsPerImage, "MandelbrotRT");
+            Own(_pipe.Front);
+            Own(_pipe.Back);
 
             _computeMaterial = Own(KaleidoRenderUtil.NewMaterial("Kaleido/ComputeMandelbrot"));
+            _computeMaterial.SetFloat(TexelSizeId, 1f / TextureSize);
             _computeMaterial.SetTexture(RefOrbitId, _refOrbit);
             _computeMaterial.SetFloat(RefCountId, _refCount);
-            _computeMaterial.SetFloat(TexelSizeId, 1f / TextureSize);
 
             _domeMaterial = NewDomeMaterial("Kaleido/DomeTexture");
-            _domeMaterial.SetTexture(ShaderIds.MainTex, _fractalRT);
-            _domeMaterial.SetFloat(Shader.PropertyToID("_LodBias"), 0.3f);   // slight softening: dense filament texture must not read as noise
+            _domeMaterial.SetFloat(LodBiasId, 0.3f);   // slight softening: dense filament texture must not read as noise
             _domeMaterial.SetFloat(ScaleId, PlaneScale);
             CreateDome(_domeMaterial);
 
-            // Initial state (zoom 1x, fully visible) so anything rendered before the first Tick is valid.
-            ApplyCycle(_localTime);
-            RenderFractal();
+            // Initial state (zoom 1x, fully visible): render a whole image so anything drawn before
+            // the first Tick is valid.
+            EvaluateCycle(_localTime, out _, out _cycleFade);
+            ApplyZoomUniforms(_localTime);
+            _pipe.RenderAll(_computeMaterial);
+            ShowFront();
         }
 
         protected override void OnTick(float dt, double evoTime)
         {
-            if (_computeMaterial == null || _fractalRT == null || _domeMaterial == null) return;
+            if (_computeMaterial == null || _domeMaterial == null || _pipe == null || _pipe.Front == null) return;
 
             if (dt > 0f)
             {
                 _localTime += dt;
-                ApplyCycle(_localTime);
-                // the zoom is continuous and slow per frame: recomputing every second frame halves the
-                // GPU cost with no visible stepping (the dome always shows the latest finished texture)
-                _frameParity ^= 1;
-                if (_frameParity == 0 || !_renderedOnce) { RenderFractal(); _renderedOnce = true; }
+                EvaluateCycle(_localTime, out _, out _cycleFade);   // the fade is continuous per tick
+
+                if (_pipe.EnsureCreated())
+                {
+                    // Render target lost (e.g. Android app suspend): redraw a whole image at the current depth.
+                    ApplyZoomUniforms(_localTime);
+                    _pipe.RenderAll(_computeMaterial);
+                    ShowFront();
+                }
+                else
+                {
+                    if (!_pipe.InProgress)
+                    {
+                        // New image: freeze the zoom parameters for all of its bands.
+                        ApplyZoomUniforms(_localTime);
+                        _pipe.Begin(_computeMaterial);
+                    }
+                    if (_pipe.Step()) ShowFront();   // last band -> swapped -> show the new depth
+                }
             }
-            else if (!_fractalRT.IsCreated())
+            else if (_pipe.EnsureCreated())
             {
-                // Paused and the render target was lost (e.g. Android app suspend). Restoring the
-                // last image is not animation: parameters are unchanged so the result is identical.
-                _fractalRT.Create();
-                RenderFractal();
+                // Paused and the render target was lost. Restoring the image is not animation:
+                // the compute uniforms are unchanged, so the result is identical.
+                _pipe.RenderAll(_computeMaterial);
+                ShowFront();
             }
 
             ApplyDomeFade();
@@ -122,10 +146,10 @@ namespace Kaleido.Scenes
 
         protected override void OnTeardown()
         {
-            // Everything is Own'd (texture, RT, both materials); the base class destroys it. Drop references only.
+            // Everything is Own'd (orbit texture, both RTs, both materials); the base class destroys it. Drop references only.
             _computeMaterial = null;
             _domeMaterial = null;
-            _fractalRT = null;
+            _pipe = null;
             _refOrbit = null;
         }
 
@@ -156,10 +180,13 @@ namespace Kaleido.Scenes
             cycleFade = fade;
         }
 
-        void ApplyCycle(double localTime)
+        /// <summary>
+        /// Set the compute uniforms for ONE image (zoom depth, iteration cap, palette clock). Called
+        /// only between images: every band of an image is rendered with the same parameters.
+        /// </summary>
+        void ApplyZoomUniforms(double localTime)
         {
-            EvaluateCycle(localTime, out float log10Zoom, out float cycleFade);
-            _cycleFade = cycleFade;
+            EvaluateCycle(localTime, out float log10Zoom, out _);
 
             float halfSize = (float)(BaseHalfSize * Math.Pow(10.0, -log10Zoom));      // 1.5 -> 1.5e-10
             float maxIter = Mathf.Clamp(MinIterations + IterationsPerDecade * log10Zoom, MinIterations, MaxIterations);
@@ -177,14 +204,10 @@ namespace Kaleido.Scenes
             _domeMaterial.SetFloat(ShaderIds.Fade, Mathf.Clamp01(_domeFade * _cycleFade));
         }
 
-        // ------------------------------------------------------------------ GPU
-        /// <summary>Full-screen pass of Kaleido/ComputeMandelbrot into the fractal RT (mips auto-regenerate).</summary>
-        void RenderFractal()
+        /// <summary>Point the dome at the finished image (its identity changes on every swap).</summary>
+        void ShowFront()
         {
-            if (_computeMaterial == null || _fractalRT == null) return;
-            var prev = RenderTexture.active;
-            Graphics.Blit(null, _fractalRT, _computeMaterial, 0);
-            RenderTexture.active = prev;
+            if (_domeMaterial != null && _pipe != null) _domeMaterial.SetTexture(ShaderIds.MainTex, _pipe.Front);
         }
 
         // ------------------------------------------------------------------ reference orbit
