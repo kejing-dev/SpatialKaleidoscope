@@ -53,6 +53,12 @@ Builds/SpatialKaleidoscope.apk
 技术基线：Unity 6000.0.59f2、URP 17.0.4、PICO Unity SDK 6.1.1（PICO XR 模式，OpenXR 沉浸路径，多视图立体），
 Vulkan / ARM64 / IL2CPP / minSdk 29。手部追踪已启用（眼手 Select 来自系统 aim state 的 IndexPinching），眼动未启用（不采集眼动数据）。
 
+## 下载与安装
+
+- **APK**：[GitHub Releases](https://github.com/kejing-dev/SpatialKaleidoscope/releases)（`SpatialKaleidoscope-v<版本>.apk`）；仓库内的 `Builds/SpatialKaleidoscope.apk` 是同一个发布包。
+- 安装到 PICO 模拟器 6.1 或 PICO OS 6 设备：`pico-cli app install SpatialKaleidoscope-v0.3.0.apk`，然后 `pico-cli app launch com.kejing.spatialkaleidoscope`。
+- 展示条目（介绍、演示视频、截图）：`SpatialKaleidoscope-showcase/`（按 [ai-context](https://github.com/kejing-dev/ai-context) 的 spatial-app-showcase 格式产出，不在本仓库内）。
+
 ## 构建与验证
 
 ```bash
@@ -73,7 +79,7 @@ pico-cli emulator start && tools/verify_emulator.sh run1
 
 ## 验证截图
 
-见 [docs/screenshots/README.md](docs/screenshots/README.md)：12 个场景的编辑器 6 视角渲染、PICO 模拟器 XR 7 姿态截图，以及 12 个过渡的半程画面（无黑帧）。
+见 [docs/screenshots/README.md](docs/screenshots/README.md)：10 个场景的编辑器多视角渲染与 PICO 模拟器（PICO OS 6，XR 模式）7 个头部姿态的截图（v0.3）。
 
 ![](docs/screenshots/emulator/scene05.jpg)
 ![](docs/screenshots/emulator/scene02.jpg)

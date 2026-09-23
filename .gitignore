@@ -22,7 +22,9 @@
 crashlytics-build.properties
 Assets/StreamingAssets/aa.meta
 Assets/StreamingAssets/aa/*
-# keep the shipped APK under Builds/ (tracked on purpose for this repo)
+# Builds/: only the shipped release APK is tracked (also attached to GitHub Releases);
+# stray copies and Burst debug info stay local
+Builds/*
 !Builds/SpatialKaleidoscope.apk
 # OS
 .DS_Store
