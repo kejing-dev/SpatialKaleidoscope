@@ -42,10 +42,10 @@ PICO Space Pro（Swan）上的沉浸式 Full Space 程序化万花筒。打开�
 Assets/Kaleido/
   Scripts/Runtime/        PlaybackController · KaleidoInput · NavButtons · PointerRayVisual · FractalTexturePipeline · KaleidoSceneBase · CellPhysics · BrightnessGovernor · HeadTilt
   Scripts/Runtime/Scenes/ 9 个场景类（10 项内容定义，见 KaleidoPlaylist.cs）
-  Scripts/Editor/         KaleidoSceneBuilder（生成 Main.unity）· KaleidoBuild（APK）· KaleidoCapture（多角度截图）
+  Scripts/Editor/         KaleidoSceneBuilder（生成 Main.unity）· KaleidoBuild（APK）· KaleidoCapture（多角度截图）· KaleidoDemoVideo（演示视频帧序列）
   Resources/Shaders/      URP 单通道多视图安全的 HLSL（折叠、cell 混合、Julia/Mandelbrot 计算、射线步进、发光线）
   Scenes/Main.unity       由 KaleidoSceneBuilder 生成（XR Origin + PXR_Manager + 播放控制器）
-tools/                    unity.sh（批处理）· verify_emulator.sh · kcmd.py · stableshot.sh · emu.sh
+tools/                    unity.sh（批处理）· verify_emulator.sh · kcmd.py · stableshot.sh · emu.sh · assemble_demo.sh（演示视频合成）
 docs/                     PRD 原文与验证截图
 Builds/SpatialKaleidoscope.apk
 ```
@@ -57,7 +57,8 @@ Vulkan / ARM64 / IL2CPP / minSdk 29。手部追踪已启用（眼手 Select 来�
 
 - **APK**：[GitHub Releases](https://github.com/kejing-dev/SpatialKaleidoscope/releases)（`SpatialKaleidoscope-v<版本>.apk`）；仓库内的 `Builds/SpatialKaleidoscope.apk` 是同一个发布包。
 - 安装到 PICO 模拟器 6.1 或 PICO OS 6 设备：`pico-cli app install SpatialKaleidoscope-v0.3.0.apk`，然后 `pico-cli app launch com.kejing.spatialkaleidoscope`。
-- 展示条目（介绍、演示视频、截图）：`SpatialKaleidoscope-showcase/`（按 [ai-context](https://github.com/kejing-dev/ai-context) 的 spatial-app-showcase 格式产出，不在本仓库内）。
+- **演示视频**：[docs/demo.mp4](docs/demo.mp4)（36.6 s，1080×1080）：10 个场景各 4.2 s 的巡览，0.6 s 交叉淡入淡出。由 `KALEIDO_DEMO_OUT=<dir> tools/unity.sh Kaleido.Editor.KaleidoDemoVideo.Run demo-frames` 在编辑器按与真机相同的运行时代码路径渲染帧序列，再 `tools/assemble_demo.sh <dir> demo.mp4` 合成（模拟器显示空闲时降到 1 Hz，不适合录屏）。
+- 展示条目（介绍、演示视频、截图、APK）：`SpatialKaleidoscope-showcase/`（按 [ai-context](https://github.com/kejing-dev/ai-context) 的 spatial-app-showcase 格式产出，不在本仓库内）。
 
 ## 构建与验证
 
